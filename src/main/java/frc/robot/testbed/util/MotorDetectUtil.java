@@ -24,7 +24,7 @@ import edu.wpi.first.wpilibj.CAN;
 /**
  * Utility class for detecting motor types on the CAN bus.
  *
- * <p>This class interrogates the CAN bus to determine if a device at a given CAN ID is a TalonFX or
+ * This class interrogates the CAN bus to determine if a device at a given CAN ID is a TalonFX or
  * Spark Max motor controller by attempting to communicate with each type and checking for
  * successful responses.
  */
@@ -33,9 +33,8 @@ public class MotorDetectUtil {
   /**
    * Detects if the device at the given CAN ID is a TalonFX motor controller.
    *
-   * <p>This method attempts to create and communicate with both TalonFX and Spark Max controllers
+   * This method attempts to create and communicate with both TalonFX and Spark Max controllers
    * to determine which one responds successfully. The detection works by:
-   *
    * <ol>
    *   <li>Attempting to read firmware version from a TalonFX at the CAN ID
    *   <li>If successful, returns true (device is TalonFX)

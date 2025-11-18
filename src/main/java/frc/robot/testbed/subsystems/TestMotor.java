@@ -36,9 +36,8 @@ import frc.robot.testbed.util.MotorDetectUtil;
 /**
  * Subsystem for controlling a single test motor (either Spark Max or TalonFX).
  *
- * <p>This subsystem automatically detects the motor controller type at the given CAN ID by
+ * This subsystem automatically detects the motor controller type at the given CAN ID by
  * interrogating the CAN bus and configures itself accordingly. Supports three control modes:
- *
  * <ul>
  *   <li><b>Voltage Control:</b> Direct voltage output (-12V to +12V)
  *   <li><b>Velocity Control:</b> Closed-loop velocity control (RPM)
@@ -46,16 +45,21 @@ import frc.robot.testbed.util.MotorDetectUtil;
  *       speed until encoder reaches target
  * </ul>
  *
- * <p>The subsystem reads target velocity and position values from NetworkTables dashboard under
+ * The subsystem reads target velocity and position values from NetworkTables dashboard under
  * "TestMotors/{name}/TargetVelocity" and "TestMotors/{name}/TargetPosition". Motor type detection
  * is performed internally and not exposed to the dashboard.
  *
- * <p><b>Motor Type Detection:</b> Uses {@link MotorDetectUtil#detectIsTalonFX(int)} to determine
+ * <b>Motor Type Detection:</b> Uses {@link MotorDetectUtil#detectIsTalonFX(int)} to determine
  * if the motor is a TalonFX or Spark Max at startup. The appropriate hardware interface is then
  * instantiated based on the detection result. This detection is transparent - the motor just works
  * with whatever controller is present.
  */
 public class TestMotor extends SubsystemBase {
+  // Position control constants
+  private static final double POSITION_MAX_VOLTAGE = 3.0; // Max voltage for position control
+  private static final double POSITION_TOLERANCE = 0.05; // Tolerance in rotations
+  private static final double POSITION_GAIN = 2.0; // Proportional gain for position control
+
   private final int canId;
   private final String name;
   private final boolean isTalonFX;
@@ -203,7 +207,7 @@ public class TestMotor extends SubsystemBase {
   /**
    * Sets the motor position in rotations using simple control without PID.
    *
-   * <p>As requested, this moves the motor slowly towards the target position at a constant low
+   * As requested, this moves the motor slowly towards the target position at a constant low
    * speed (max 3V) without using PID control. The motor speed is proportional to the error for
    * smooth approach, and stops when within 0.05 rotations of the target.
    *
@@ -214,25 +218,30 @@ public class TestMotor extends SubsystemBase {
     targetPosition = rotations;
 
     // Simple position control - move slowly towards target without PID
-    double currentPosition = 0.0;
-    if (isTalonFX && talonMotor != null) {
-      currentPosition = talonMotor.getPosition();
-    } else if (sparkMotor != null) {
-      currentPosition = sparkMotor.getEncoder().getPosition();
-    }
+    double currentPosition = getCurrentPosition();
 
     double error = targetPosition - currentPosition;
-    double maxVoltage = 3.0; // Move slowly (3V max as per requirements)
-    
-    // Proportional voltage based on error, capped at maxVoltage
-    double voltage = Math.signum(error) * Math.min(Math.abs(error) * 2.0, maxVoltage);
 
-    // Stop if close enough (within 0.05 rotations)
-    if (Math.abs(error) < 0.05) {
+    // Proportional voltage based on error, capped at max voltage
+    double voltage =
+        Math.signum(error) * Math.min(Math.abs(error) * POSITION_GAIN, POSITION_MAX_VOLTAGE);
+
+    // Stop if close enough
+    if (Math.abs(error) < POSITION_TOLERANCE) {
       voltage = 0.0;
     }
 
     setVoltage(voltage);
+  }
+
+  /** Gets the current motor position in rotations. */
+  private double getCurrentPosition() {
+    if (isTalonFX && talonMotor != null) {
+      return talonMotor.getPosition();
+    } else if (sparkMotor != null) {
+      return sparkMotor.getEncoder().getPosition();
+    }
+    return 0.0;
   }
 
   /** Stops the motor. */

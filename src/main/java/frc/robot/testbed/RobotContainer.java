@@ -22,14 +22,14 @@ import frc.robot.generic.util.AbstractRobotContainer;
 import frc.robot.generic.util.RobotConfig;
 import frc.robot.generic.util.SwerveBuilder;
 import frc.robot.testbed.subsystems.TestMotor;
+import java.util.function.DoubleSupplier;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
  * Testbed robot container for remotely testing motors and prototypes on a swerve drivetrain
  * without any programming work.
  *
- * <p>This testbed provides:
- *
+ * This testbed provides:
  * <ul>
  *   <li>Generic swerve drive controlled by driver controller (port 0)
  *   <li>4 motors bound to codriver joysticks for direct voltage control (CAN IDs 10-13)
@@ -41,8 +41,7 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  *   <li>Emergency stop controls for safety
  * </ul>
  *
- * <p><b>Codriver Controller Layout (Port 1):</b>
- *
+ * <b>Codriver Controller Layout (Port 1):</b>
  * <ul>
  *   <li>Left Joystick Y → JoystickMotor1 (CAN 10)
  *   <li>Left Joystick X → JoystickMotor2 (CAN 11)
@@ -59,18 +58,22 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  *   <li>Back Button → EMERGENCY STOP ALL TEST MOTORS
  * </ul>
  *
- * <p><b>Dashboard Control:</b> Button-controlled motors read target velocity (RPM) or position
+ * <b>Dashboard Control:</b> Button-controlled motors read target velocity (RPM) or position
  * (rotations) from NetworkTables at "TestMotors/{MotorName}/TargetVelocity" and
  * "TestMotors/{MotorName}/TargetPosition". Position control moves slowly without PID until the
  * encoder reaches the target.
  *
- * <p><b>Motor Detection:</b> Each motor's type (TalonFX or Spark Max) is automatically detected at
+ * <b>Motor Detection:</b> Each motor's type (TalonFX or Spark Max) is automatically detected at
  * startup by interrogating the CAN bus. Motors are configured appropriately based on detection
  * results. Detection is transparent - motors just work with whatever controller is present without
  * exposing type information to the dashboard.
  */
 public class RobotContainer implements AbstractRobotContainer {
   public static RobotConfig config = RobotConfig.defaultCommandBased(RobotContainer::new);
+
+  // Constants for motor control
+  private static final double JOYSTICK_DEADBAND = 0.1;
+  private static final double MAX_VOLTAGE = 12.0;
 
   // Controllers
   private final CommandXboxController driverController = new CommandXboxController(0);
@@ -109,21 +112,62 @@ public class RobotContainer implements AbstractRobotContainer {
   }
 
   /**
+   * Creates a joystick motor control command with deadband.
+   *
+   * @param motor The motor to control
+   * @param axisSupplier Supplier for the joystick axis value
+   * @return Command that controls the motor based on axis input
+   */
+  private Command createJoystickMotorCommand(TestMotor motor, DoubleSupplier axisSupplier) {
+    return Commands.run(
+        () -> {
+          double value = -axisSupplier.getAsDouble();
+          if (Math.abs(value) > JOYSTICK_DEADBAND) {
+            motor.setVoltage(value * MAX_VOLTAGE);
+          } else {
+            motor.stop();
+          }
+        },
+        motor);
+  }
+
+  /**
+   * Creates a paddle motor control command for trigger-based control.
+   *
+   * @param motor The motor to control
+   * @return Command that controls the motor based on trigger inputs
+   */
+  private Command createPaddleMotorCommand(TestMotor motor) {
+    return Commands.run(
+        () -> {
+          double leftTrigger = codriverController.getLeftTriggerAxis();
+          double rightTrigger = codriverController.getRightTriggerAxis();
+          if (leftTrigger > JOYSTICK_DEADBAND) {
+            motor.setVoltage(leftTrigger * MAX_VOLTAGE);
+          } else if (rightTrigger > JOYSTICK_DEADBAND) {
+            motor.setVoltage(-rightTrigger * MAX_VOLTAGE);
+          } else {
+            motor.stop();
+          }
+        },
+        motor);
+  }
+
+  /**
    * Configures button bindings for testbed motor control.
    *
-   * <p><b>Joystick Control:</b> The four joystick motors receive continuous voltage control (-12V
+   * <b>Joystick Control:</b> The four joystick motors receive continuous voltage control (-12V
    * to +12V) proportional to joystick deflection. A 10% deadband is applied to prevent drift.
    *
-   * <p><b>Paddle Control:</b> The two paddle motors run synchronized - both move forward when left
+   * <b>Paddle Control:</b> The two paddle motors run synchronized - both move forward when left
    * trigger is pressed, both move backward when right trigger is pressed. Speed is proportional to
    * trigger pressure.
    *
-   * <p><b>Button Control:</b> The four button motors are controlled via dashboard values. Press and
+   * <b>Button Control:</b> The four button motors are controlled via dashboard values. Press and
    * hold A/B for velocity control or X/Y for position control. Release to stop. Target values are
    * read from NetworkTables.
    *
-   * <p><b>Emergency Stops:</b>
-   *
+   * <b>Emergency Stops:</b>
    * <ul>
    *   <li>Left Bumper: Stop paddle motors only
    *   <li>Right Bumper: Stop joystick motors only
@@ -135,93 +179,21 @@ public class RobotContainer implements AbstractRobotContainer {
     // JOYSTICK MOTORS: Direct voltage control from joysticks with deadband
     // ========================================
 
-    // Left stick Y-axis controls JoystickMotor1 (CAN ID 10)
     joystickMotor1.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double value = -codriverController.getLeftY();
-              if (Math.abs(value) > 0.1) {
-                joystickMotor1.setVoltage(value * 12.0);
-              } else {
-                joystickMotor1.stop();
-              }
-            },
-            joystickMotor1));
-
-    // Left stick X-axis controls JoystickMotor2 (CAN ID 11)
+        createJoystickMotorCommand(joystickMotor1, codriverController::getLeftY));
     joystickMotor2.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double value = -codriverController.getLeftX();
-              if (Math.abs(value) > 0.1) {
-                joystickMotor2.setVoltage(value * 12.0);
-              } else {
-                joystickMotor2.stop();
-              }
-            },
-            joystickMotor2));
-
-    // Right stick Y-axis controls JoystickMotor3 (CAN ID 12)
+        createJoystickMotorCommand(joystickMotor2, codriverController::getLeftX));
     joystickMotor3.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double value = -codriverController.getRightY();
-              if (Math.abs(value) > 0.1) {
-                joystickMotor3.setVoltage(value * 12.0);
-              } else {
-                joystickMotor3.stop();
-              }
-            },
-            joystickMotor3));
-
-    // Right stick X-axis controls JoystickMotor4 (CAN ID 13)
+        createJoystickMotorCommand(joystickMotor3, codriverController::getRightY));
     joystickMotor4.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double value = -codriverController.getRightX();
-              if (Math.abs(value) > 0.1) {
-                joystickMotor4.setVoltage(value * 12.0);
-              } else {
-                joystickMotor4.stop();
-              }
-            },
-            joystickMotor4));
+        createJoystickMotorCommand(joystickMotor4, codriverController::getRightX));
 
     // ========================================
     // PADDLE MOTORS: Synchronized trigger control
     // ========================================
 
-    // PaddleMotor1: Left trigger = forward, Right trigger = backward (CAN ID 14)
-    paddleMotor1.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double leftTrigger = codriverController.getLeftTriggerAxis();
-              double rightTrigger = codriverController.getRightTriggerAxis();
-              if (leftTrigger > 0.1) {
-                paddleMotor1.setVoltage(leftTrigger * 12.0);
-              } else if (rightTrigger > 0.1) {
-                paddleMotor1.setVoltage(-rightTrigger * 12.0);
-              } else {
-                paddleMotor1.stop();
-              }
-            },
-            paddleMotor1));
-
-    // PaddleMotor2: Same as PaddleMotor1 for synchronized movement (CAN ID 15)
-    paddleMotor2.setDefaultCommand(
-        Commands.run(
-            () -> {
-              double leftTrigger = codriverController.getLeftTriggerAxis();
-              double rightTrigger = codriverController.getRightTriggerAxis();
-              if (leftTrigger > 0.1) {
-                paddleMotor2.setVoltage(leftTrigger * 12.0);
-              } else if (rightTrigger > 0.1) {
-                paddleMotor2.setVoltage(-rightTrigger * 12.0);
-              } else {
-                paddleMotor2.stop();
-              }
-            },
-            paddleMotor2));
+    paddleMotor1.setDefaultCommand(createPaddleMotorCommand(paddleMotor1));
+    paddleMotor2.setDefaultCommand(createPaddleMotorCommand(paddleMotor2));
 
     // ========================================
     // BUTTON MOTORS: Dashboard-controlled velocity and position
