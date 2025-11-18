@@ -43,19 +43,19 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  *
  * <b>Codriver Controller Layout (Port 1):</b>
  * <ul>
- *   <li>Left Joystick Y → JoystickMotor1 (CAN 10)
- *   <li>Left Joystick X → JoystickMotor2 (CAN 11)
- *   <li>Right Joystick Y → JoystickMotor3 (CAN 12)
- *   <li>Right Joystick X → JoystickMotor4 (CAN 13)
- *   <li>Left Trigger (Paddle) → PaddleMotor1 & PaddleMotor2 forward (CAN 14-15)
- *   <li>Right Trigger (Paddle) → PaddleMotor1 & PaddleMotor2 backward (CAN 14-15)
- *   <li>A Button → ButtonMotor1 velocity control from dashboard (CAN 20)
- *   <li>B Button → ButtonMotor2 velocity control from dashboard (CAN 21)
- *   <li>X Button → ButtonMotor3 position control from dashboard (CAN 22)
- *   <li>Y Button → ButtonMotor4 position control from dashboard (CAN 23)
- *   <li>Left Bumper → Stop paddle motors
- *   <li>Right Bumper → Stop joystick motors
- *   <li>Back Button → EMERGENCY STOP ALL TEST MOTORS
+ *   <li>Left Joystick Y -> JoystickMotor1 (CAN 10)
+ *   <li>Left Joystick X -> JoystickMotor2 (CAN 11)
+ *   <li>Right Joystick Y -> JoystickMotor3 (CAN 12)
+ *   <li>Right Joystick X -> JoystickMotor4 (CAN 13)
+ *   <li>Left Trigger (Paddle) -> PaddleMotor1 & PaddleMotor2 forward (CAN 14-15)
+ *   <li>Right Trigger (Paddle) -> PaddleMotor1 & PaddleMotor2 backward (CAN 14-15)
+ *   <li>A Button -> ButtonMotor1 velocity control from dashboard (CAN 20)
+ *   <li>B Button -> ButtonMotor2 velocity control from dashboard (CAN 21)
+ *   <li>X Button -> ButtonMotor3 position control from dashboard (CAN 22)
+ *   <li>Y Button -> ButtonMotor4 position control from dashboard (CAN 23)
+ *   <li>Left Bumper -> Stop paddle motors
+ *   <li>Right Bumper -> Stop joystick motors
+ *   <li>Back Button -> EMERGENCY STOP ALL TEST MOTORS
  * </ul>
  *
  * <b>Dashboard Control:</b> Button-controlled motors read target velocity (RPM) or position
