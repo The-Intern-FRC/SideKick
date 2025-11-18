@@ -13,6 +13,9 @@
 
 package frc.robot.testbed.subsystems;
 
+import static edu.wpi.first.units.Units.*;
+
+import com.ctre.phoenix6.CANBus;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.revrobotics.spark.SparkBase.ControlType;
@@ -63,6 +66,7 @@ public class TestMotor extends SubsystemBase {
   private final int canId;
   private final String name;
   private final boolean isTalonFX;
+  private final CANBus canBus = new CANBus(); // CAN bus for TalonFX motors
 
   // Motor controllers
   private SparkMax sparkMotor;
@@ -111,7 +115,7 @@ public class TestMotor extends SubsystemBase {
                 + (isTalonFX ? "TalonFX" : "Spark"));
 
         if (isTalonFX) {
-          talonMotor = new PhoenixTalonFX(canId, name);
+          talonMotor = new PhoenixTalonFX(canId, canBus, name);
         } else {
           sparkMotor = new SparkMax(canId, MotorType.kBrushless);
           var config = new SparkMaxConfig();
@@ -237,7 +241,7 @@ public class TestMotor extends SubsystemBase {
   /** Gets the current motor position in rotations. */
   private double getCurrentPosition() {
     if (isTalonFX && talonMotor != null) {
-      return talonMotor.getPosition();
+      return talonMotor.getPosition().in(Rotations);
     } else if (sparkMotor != null) {
       return sparkMotor.getEncoder().getPosition();
     }
