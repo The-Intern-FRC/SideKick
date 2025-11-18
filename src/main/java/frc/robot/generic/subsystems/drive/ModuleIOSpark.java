@@ -73,7 +73,7 @@ public class ModuleIOSpark implements ModuleIO {
   private final Debouncer driveConnectedDebounce = new Debouncer(0.5);
   private final Debouncer turnConnectedDebounce = new Debouncer(0.5);
 
-  // Cached cancoder status — updated only in resetToAbsolute()
+  // Cached cancoder status - updated only in resetToAbsolute()
   private boolean lastCancoderConnected = false;
 
   private final int module;
@@ -303,7 +303,7 @@ public class ModuleIOSpark implements ModuleIO {
     if (lastCancoderConnected) {
       // Get absolute position in radians directly
 
-      // Apply mechanical zero offset and wrap to [-π, π]
+      // Apply mechanical zero offset and wrap to [-pi, pi]
       double adjustedRadians =
           -new Rotation2d(posSignal.getValue()).plus(zeroRotation).getRadians();
 
