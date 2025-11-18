@@ -25,8 +25,48 @@ import frc.robot.testbed.subsystems.TestMotor;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 /**
- * Testbed robot container for testing motors and prototypes without programming. Uses generic
- * swerve drive as base with additional test motor capabilities.
+ * Testbed robot container for remotely testing motors and prototypes on a swerve drivetrain
+ * without any programming work.
+ *
+ * <p>This testbed provides:
+ *
+ * <ul>
+ *   <li>Generic swerve drive controlled by driver controller (port 0)
+ *   <li>4 motors bound to codriver joysticks for direct voltage control (CAN IDs 10-13)
+ *   <li>2 motors bound to codriver paddles for synchronized forward/backward control (CAN IDs
+ *       14-15)
+ *   <li>4 motors bound to codriver buttons with dashboard-settable velocities/positions (CAN IDs
+ *       20-23)
+ *   <li>Automatic motor type detection (TalonFX vs Spark Max) via CAN bus interrogation
+ *   <li>Emergency stop controls for safety
+ * </ul>
+ *
+ * <p><b>Codriver Controller Layout (Port 1):</b>
+ *
+ * <ul>
+ *   <li>Left Joystick Y → JoystickMotor1 (CAN 10)
+ *   <li>Left Joystick X → JoystickMotor2 (CAN 11)
+ *   <li>Right Joystick Y → JoystickMotor3 (CAN 12)
+ *   <li>Right Joystick X → JoystickMotor4 (CAN 13)
+ *   <li>Left Trigger (Paddle) → PaddleMotor1 & PaddleMotor2 forward (CAN 14-15)
+ *   <li>Right Trigger (Paddle) → PaddleMotor1 & PaddleMotor2 backward (CAN 14-15)
+ *   <li>A Button → ButtonMotor1 velocity control from dashboard (CAN 20)
+ *   <li>B Button → ButtonMotor2 velocity control from dashboard (CAN 21)
+ *   <li>X Button → ButtonMotor3 position control from dashboard (CAN 22)
+ *   <li>Y Button → ButtonMotor4 position control from dashboard (CAN 23)
+ *   <li>Left Bumper → Stop paddle motors
+ *   <li>Right Bumper → Stop joystick motors
+ *   <li>Back Button → EMERGENCY STOP ALL TEST MOTORS
+ * </ul>
+ *
+ * <p><b>Dashboard Control:</b> Button-controlled motors read target velocity (RPM) or position
+ * (rotations) from NetworkTables at "TestMotors/{MotorName}/TargetVelocity" and
+ * "TestMotors/{MotorName}/TargetPosition". Position control moves slowly without PID until the
+ * encoder reaches the target.
+ *
+ * <p><b>Motor Detection:</b> Each motor's type (TalonFX or Spark Max) is automatically detected at
+ * startup by interrogating the CAN bus. Motors are configured appropriately based on detection
+ * results.
  */
 public class RobotContainer implements AbstractRobotContainer {
   public static RobotConfig config = RobotConfig.defaultCommandBased(RobotContainer::new);
@@ -67,134 +107,212 @@ public class RobotContainer implements AbstractRobotContainer {
     configureButtonBindings();
   }
 
-  /** Configures button bindings for testbed motor control. */
+  /**
+   * Configures button bindings for testbed motor control.
+   *
+   * <p><b>Joystick Control:</b> The four joystick motors receive continuous voltage control (-12V
+   * to +12V) proportional to joystick deflection. A 10% deadband is applied to prevent drift.
+   *
+   * <p><b>Paddle Control:</b> The two paddle motors run synchronized - both move forward when left
+   * trigger is pressed, both move backward when right trigger is pressed. Speed is proportional to
+   * trigger pressure.
+   *
+   * <p><b>Button Control:</b> The four button motors are controlled via dashboard values. Press and
+   * hold A/B for velocity control or X/Y for position control. Release to stop. Target values are
+   * read from NetworkTables.
+   *
+   * <p><b>Emergency Stops:</b>
+   *
+   * <ul>
+   *   <li>Left Bumper: Stop paddle motors only
+   *   <li>Right Bumper: Stop joystick motors only
+   *   <li>Back Button: STOP ALL TEST MOTORS (emergency)
+   * </ul>
+   */
   private void configureButtonBindings() {
-    // Codriver controller bindings:
+    // ========================================
+    // JOYSTICK MOTORS: Direct voltage control from joysticks with deadband
+    // ========================================
 
-    // Left joystick Y-axis -> JoystickMotor1 (vertical movement)
+    // Left stick Y-axis controls JoystickMotor1 (CAN ID 10)
+    joystickMotor1.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double value = -codriverController.getLeftY();
+              if (Math.abs(value) > 0.1) {
+                joystickMotor1.setVoltage(value * 12.0);
+              } else {
+                joystickMotor1.stop();
+              }
+            },
+            joystickMotor1));
+
+    // Left stick X-axis controls JoystickMotor2 (CAN ID 11)
+    joystickMotor2.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double value = -codriverController.getLeftX();
+              if (Math.abs(value) > 0.1) {
+                joystickMotor2.setVoltage(value * 12.0);
+              } else {
+                joystickMotor2.stop();
+              }
+            },
+            joystickMotor2));
+
+    // Right stick Y-axis controls JoystickMotor3 (CAN ID 12)
+    joystickMotor3.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double value = -codriverController.getRightY();
+              if (Math.abs(value) > 0.1) {
+                joystickMotor3.setVoltage(value * 12.0);
+              } else {
+                joystickMotor3.stop();
+              }
+            },
+            joystickMotor3));
+
+    // Right stick X-axis controls JoystickMotor4 (CAN ID 13)
+    joystickMotor4.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double value = -codriverController.getRightX();
+              if (Math.abs(value) > 0.1) {
+                joystickMotor4.setVoltage(value * 12.0);
+              } else {
+                joystickMotor4.stop();
+              }
+            },
+            joystickMotor4));
+
+    // ========================================
+    // PADDLE MOTORS: Synchronized trigger control
+    // ========================================
+
+    // PaddleMotor1: Left trigger = forward, Right trigger = backward (CAN ID 14)
+    paddleMotor1.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double leftTrigger = codriverController.getLeftTriggerAxis();
+              double rightTrigger = codriverController.getRightTriggerAxis();
+              if (leftTrigger > 0.1) {
+                paddleMotor1.setVoltage(leftTrigger * 12.0);
+              } else if (rightTrigger > 0.1) {
+                paddleMotor1.setVoltage(-rightTrigger * 12.0);
+              } else {
+                paddleMotor1.stop();
+              }
+            },
+            paddleMotor1));
+
+    // PaddleMotor2: Same as PaddleMotor1 for synchronized movement (CAN ID 15)
+    paddleMotor2.setDefaultCommand(
+        Commands.run(
+            () -> {
+              double leftTrigger = codriverController.getLeftTriggerAxis();
+              double rightTrigger = codriverController.getRightTriggerAxis();
+              if (leftTrigger > 0.1) {
+                paddleMotor2.setVoltage(leftTrigger * 12.0);
+              } else if (rightTrigger > 0.1) {
+                paddleMotor2.setVoltage(-rightTrigger * 12.0);
+              } else {
+                paddleMotor2.stop();
+              }
+            },
+            paddleMotor2));
+
+    // ========================================
+    // BUTTON MOTORS: Dashboard-controlled velocity and position
+    // ========================================
+
+    // A button: Velocity control for ButtonMotor1 (CAN ID 20)
+    // Hold to run at velocity from "TestMotors/ButtonMotor1/TargetVelocity" on dashboard
     codriverController
-        .axisGreaterThan(1, 0.1)
+        .a()
         .whileTrue(
-            Commands.run(() -> joystickMotor1.setVoltage(-codriverController.getLeftY() * 12.0)));
+            Commands.run(
+                () -> {
+                  buttonMotor1.setVelocity(buttonMotor1.targetVelocity);
+                },
+                buttonMotor1))
+        .onFalse(buttonMotor1.stopCommand());
+
+    // B button: Velocity control for ButtonMotor2 (CAN ID 21)
+    // Hold to run at velocity from "TestMotors/ButtonMotor2/TargetVelocity" on dashboard
     codriverController
-        .axisLessThan(1, -0.1)
+        .b()
         .whileTrue(
-            Commands.run(() -> joystickMotor1.setVoltage(-codriverController.getLeftY() * 12.0)));
-    codriverController.axisLessThan(1, 0.1).and(codriverController.axisGreaterThan(1, -0.1))
-        .whileTrue(Commands.run(joystickMotor1::stop));
+            Commands.run(
+                () -> {
+                  buttonMotor2.setVelocity(buttonMotor2.targetVelocity);
+                },
+                buttonMotor2))
+        .onFalse(buttonMotor2.stopCommand());
 
-    // Left joystick X-axis -> JoystickMotor2 (horizontal movement)
+    // X button: Position control for ButtonMotor3 (CAN ID 22)
+    // Hold to move slowly to position from "TestMotors/ButtonMotor3/TargetPosition" on dashboard
+    // Uses simple control without PID - moves at constant slow speed until target reached
     codriverController
-        .axisGreaterThan(0, 0.1)
+        .x()
         .whileTrue(
-            Commands.run(() -> joystickMotor2.setVoltage(-codriverController.getLeftX() * 12.0)));
+            Commands.run(
+                () -> {
+                  buttonMotor3.setPosition(buttonMotor3.targetPosition);
+                },
+                buttonMotor3))
+        .onFalse(buttonMotor3.stopCommand());
+
+    // Y button: Position control for ButtonMotor4 (CAN ID 23)
+    // Hold to move slowly to position from "TestMotors/ButtonMotor4/TargetPosition" on dashboard
+    // Uses simple control without PID - moves at constant slow speed until target reached
     codriverController
-        .axisLessThan(0, -0.1)
+        .y()
         .whileTrue(
-            Commands.run(() -> joystickMotor2.setVoltage(-codriverController.getLeftX() * 12.0)));
-    codriverController.axisLessThan(0, 0.1).and(codriverController.axisGreaterThan(0, -0.1))
-        .whileTrue(Commands.run(joystickMotor2::stop));
+            Commands.run(
+                () -> {
+                  buttonMotor4.setPosition(buttonMotor4.targetPosition);
+                },
+                buttonMotor4))
+        .onFalse(buttonMotor4.stopCommand());
 
-    // Right joystick Y-axis -> JoystickMotor3
-    codriverController
-        .axisGreaterThan(5, 0.1)
-        .whileTrue(
-            Commands.run(() -> joystickMotor3.setVoltage(-codriverController.getRightY() * 12.0)));
-    codriverController
-        .axisLessThan(5, -0.1)
-        .whileTrue(
-            Commands.run(() -> joystickMotor3.setVoltage(-codriverController.getRightY() * 12.0)));
-    codriverController.axisLessThan(5, 0.1).and(codriverController.axisGreaterThan(5, -0.1))
-        .whileTrue(Commands.run(joystickMotor3::stop));
+    // ========================================
+    // EMERGENCY STOP CONTROLS
+    // ========================================
 
-    // Right joystick X-axis -> JoystickMotor4
-    codriverController
-        .axisGreaterThan(4, 0.1)
-        .whileTrue(
-            Commands.run(() -> joystickMotor4.setVoltage(-codriverController.getRightX() * 12.0)));
-    codriverController
-        .axisLessThan(4, -0.1)
-        .whileTrue(
-            Commands.run(() -> joystickMotor4.setVoltage(-codriverController.getRightX() * 12.0)));
-    codriverController.axisLessThan(4, 0.1).and(codriverController.axisGreaterThan(4, -0.1))
-        .whileTrue(Commands.run(joystickMotor4::stop));
-
-    // Left trigger (paddle) -> PaddleMotor1 and PaddleMotor2 forward
-    codriverController
-        .leftTrigger(0.1)
-        .whileTrue(
-            Commands.parallel(
-                Commands.run(
-                    () -> {
-                      double value = codriverController.getLeftTriggerAxis();
-                      paddleMotor1.setVoltage(value * 12.0);
-                      paddleMotor2.setVoltage(value * 12.0);
-                    }),
-                Commands.run(paddleMotor1::stop).finallyDo(paddleMotor1::stop),
-                Commands.run(paddleMotor2::stop).finallyDo(paddleMotor2::stop)));
-
-    // Right trigger (paddle) -> PaddleMotor1 and PaddleMotor2 backward
-    codriverController
-        .rightTrigger(0.1)
-        .whileTrue(
-            Commands.parallel(
-                Commands.run(
-                    () -> {
-                      double value = codriverController.getRightTriggerAxis();
-                      paddleMotor1.setVoltage(-value * 12.0);
-                      paddleMotor2.setVoltage(-value * 12.0);
-                    }),
-                Commands.run(paddleMotor1::stop).finallyDo(paddleMotor1::stop),
-                Commands.run(paddleMotor2::stop).finallyDo(paddleMotor2::stop)));
-
-    // Button bindings for motors with dashboard control:
-    // A button -> Enable velocity control for ButtonMotor1
-    codriverController.a().onTrue(buttonMotor1.enableVelocityControlCommand());
-    codriverController.a().onFalse(buttonMotor1.stopCommand());
-
-    // B button -> Enable velocity control for ButtonMotor2
-    codriverController.b().onTrue(buttonMotor2.enableVelocityControlCommand());
-    codriverController.b().onFalse(buttonMotor2.stopCommand());
-
-    // X button -> Enable position control for ButtonMotor3
-    codriverController.x().onTrue(buttonMotor3.enablePositionControlCommand());
-    codriverController.x().onFalse(buttonMotor3.stopCommand());
-
-    // Y button -> Enable position control for ButtonMotor4
-    codriverController.y().onTrue(buttonMotor4.enablePositionControlCommand());
-    codriverController.y().onFalse(buttonMotor4.stopCommand());
-
-    // Left bumper -> Stop all paddle motors
+    // Left bumper: Stop paddle motors only
     codriverController
         .leftBumper()
-        .onTrue(
-            Commands.parallel(paddleMotor1.stopCommand(), paddleMotor2.stopCommand()));
+        .onTrue(Commands.runOnce(() -> {
+          paddleMotor1.stop();
+          paddleMotor2.stop();
+        }));
 
-    // Right bumper -> Stop all joystick motors
+    // Right bumper: Stop joystick motors only
     codriverController
         .rightBumper()
-        .onTrue(
-            Commands.parallel(
-                joystickMotor1.stopCommand(),
-                joystickMotor2.stopCommand(),
-                joystickMotor3.stopCommand(),
-                joystickMotor4.stopCommand()));
+        .onTrue(Commands.runOnce(() -> {
+          joystickMotor1.stop();
+          joystickMotor2.stop();
+          joystickMotor3.stop();
+          joystickMotor4.stop();
+        }));
 
-    // Back button -> Stop all test motors
+    // Back button: EMERGENCY STOP - Stop ALL test motors immediately
     codriverController
         .back()
-        .onTrue(
-            Commands.parallel(
-                joystickMotor1.stopCommand(),
-                joystickMotor2.stopCommand(),
-                joystickMotor3.stopCommand(),
-                joystickMotor4.stopCommand(),
-                paddleMotor1.stopCommand(),
-                paddleMotor2.stopCommand(),
-                buttonMotor1.stopCommand(),
-                buttonMotor2.stopCommand(),
-                buttonMotor3.stopCommand(),
-                buttonMotor4.stopCommand()));
+        .onTrue(Commands.runOnce(() -> {
+          joystickMotor1.stop();
+          joystickMotor2.stop();
+          joystickMotor3.stop();
+          joystickMotor4.stop();
+          paddleMotor1.stop();
+          paddleMotor2.stop();
+          buttonMotor1.stop();
+          buttonMotor2.stop();
+          buttonMotor3.stop();
+          buttonMotor4.stop();
+        }));
   }
 
   /**

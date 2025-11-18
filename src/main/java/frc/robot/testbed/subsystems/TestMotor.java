@@ -34,7 +34,27 @@ import frc.robot.generic.util.LoggedTalon.PhoenixTalonFX;
 import frc.robot.generic.util.LoggedTalon.SimpleMotorSim;
 import frc.robot.testbed.util.MotorDetectUtil;
 
-/** Subsystem for controlling a single test motor (either Spark or TalonFX). */
+/**
+ * Subsystem for controlling a single test motor (either Spark Max or TalonFX).
+ *
+ * <p>This subsystem automatically detects the motor controller type at the given CAN ID by
+ * interrogating the CAN bus and configures itself accordingly. Supports three control modes:
+ *
+ * <ul>
+ *   <li><b>Voltage Control:</b> Direct voltage output (-12V to +12V)
+ *   <li><b>Velocity Control:</b> Closed-loop velocity control (RPM)
+ *   <li><b>Position Control:</b> Simple position control without PID - moves slowly at constant
+ *       speed until encoder reaches target
+ * </ul>
+ *
+ * <p>The subsystem publishes motor state to NetworkTables under "TestMotors/{name}/" including
+ * current position, velocity, motor type, and CAN ID. It also subscribes to target velocity and
+ * position values from the dashboard.
+ *
+ * <p><b>Motor Type Detection:</b> Uses {@link MotorDetectUtil#detectIsTalonFX(int)} to determine
+ * if the motor is a TalonFX or Spark Max at startup. The appropriate hardware interface is then
+ * instantiated based on the detection result.
+ */
 public class TestMotor extends SubsystemBase {
   private final int canId;
   private final String name;
@@ -48,8 +68,8 @@ public class TestMotor extends SubsystemBase {
   private final VelocityVoltage talonVelocityControl = new VelocityVoltage(0);
 
   // Control state
-  private double targetVelocity = 0.0; // RPM for velocity control
-  private double targetPosition = 0.0; // Rotations for position control
+  public double targetVelocity = 0.0; // RPM for velocity control
+  public double targetPosition = 0.0; // Rotations for position control
   private double currentOutput = 0.0; // Current voltage output
   private ControlMode controlMode = ControlMode.STOPPED;
 
@@ -149,6 +169,10 @@ public class TestMotor extends SubsystemBase {
 
   @Override
   public void periodic() {
+    // Read target values from dashboard
+    targetVelocity = velocityInput.get();
+    targetPosition = positionInput.get();
+
     // Update outputs to dashboard
     if (isTalonFX && talonMotor != null) {
       talonMotor.periodic();
@@ -157,15 +181,6 @@ public class TestMotor extends SubsystemBase {
     } else if (sparkMotor != null) {
       currentPositionOutput.set(sparkMotor.getEncoder().getPosition());
       currentVelocityOutput.set(sparkMotor.getEncoder().getVelocity());
-    }
-
-    // Update from dashboard inputs if in velocity or position mode
-    if (controlMode == ControlMode.VELOCITY) {
-      targetVelocity = velocityInput.get();
-      setVelocity(targetVelocity);
-    } else if (controlMode == ControlMode.POSITION) {
-      targetPosition = positionInput.get();
-      setPosition(targetPosition);
     }
   }
 
@@ -196,14 +211,19 @@ public class TestMotor extends SubsystemBase {
   }
 
   /**
-   * Sets the motor position in rotations. For position control, the motor will move slowly to the
-   * target without PID.
+   * Sets the motor position in rotations using simple control without PID.
+   *
+   * <p>As requested, this moves the motor slowly towards the target position at a constant low
+   * speed (max 3V) without using PID control. The motor speed is proportional to the error for
+   * smooth approach, and stops when within 0.05 rotations of the target.
+   *
+   * @param rotations Target position in rotations
    */
   public void setPosition(double rotations) {
     controlMode = ControlMode.POSITION;
     targetPosition = rotations;
 
-    // Simple position control - move slowly towards target
+    // Simple position control - move slowly towards target without PID
     double currentPosition = 0.0;
     if (isTalonFX && talonMotor != null) {
       currentPosition = talonMotor.getPosition();
@@ -212,10 +232,12 @@ public class TestMotor extends SubsystemBase {
     }
 
     double error = targetPosition - currentPosition;
-    double maxVoltage = 3.0; // Move slowly
+    double maxVoltage = 3.0; // Move slowly (3V max as per requirements)
+    
+    // Proportional voltage based on error, capped at maxVoltage
     double voltage = Math.signum(error) * Math.min(Math.abs(error) * 2.0, maxVoltage);
 
-    // Stop if close enough
+    // Stop if close enough (within 0.05 rotations)
     if (Math.abs(error) < 0.05) {
       voltage = 0.0;
     }
