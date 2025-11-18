@@ -22,7 +22,6 @@ import com.revrobotics.spark.SparkClosedLoopController;
 import com.revrobotics.spark.SparkLowLevel.MotorType;
 import com.revrobotics.spark.SparkMax;
 import com.revrobotics.spark.config.SparkMaxConfig;
-import edu.wpi.first.networktables.DoublePublisher;
 import edu.wpi.first.networktables.DoubleSubscriber;
 import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -47,13 +46,14 @@ import frc.robot.testbed.util.MotorDetectUtil;
  *       speed until encoder reaches target
  * </ul>
  *
- * <p>The subsystem publishes motor state to NetworkTables under "TestMotors/{name}/" including
- * current position, velocity, motor type, and CAN ID. It also subscribes to target velocity and
- * position values from the dashboard.
+ * <p>The subsystem reads target velocity and position values from NetworkTables dashboard under
+ * "TestMotors/{name}/TargetVelocity" and "TestMotors/{name}/TargetPosition". Motor type detection
+ * is performed internally and not exposed to the dashboard.
  *
  * <p><b>Motor Type Detection:</b> Uses {@link MotorDetectUtil#detectIsTalonFX(int)} to determine
  * if the motor is a TalonFX or Spark Max at startup. The appropriate hardware interface is then
- * instantiated based on the detection result.
+ * instantiated based on the detection result. This detection is transparent - the motor just works
+ * with whatever controller is present.
  */
 public class TestMotor extends SubsystemBase {
   private final int canId;
@@ -73,11 +73,9 @@ public class TestMotor extends SubsystemBase {
   private double currentOutput = 0.0; // Current voltage output
   private ControlMode controlMode = ControlMode.STOPPED;
 
-  // Dashboard inputs
+  // Dashboard inputs for target values only
   private final DoubleSubscriber velocityInput;
   private final DoubleSubscriber positionInput;
-  private final DoublePublisher currentPositionOutput;
-  private final DoublePublisher currentVelocityOutput;
 
   public enum ControlMode {
     STOPPED,
@@ -153,18 +151,15 @@ public class TestMotor extends SubsystemBase {
         break;
     }
 
-    // Set up dashboard inputs/outputs
+    // Set up dashboard inputs for target values only
+    // Motor type detection is internal - not exposed to dashboard
     var table = NetworkTableInstance.getDefault().getTable("TestMotors/" + name);
     velocityInput = table.getDoubleTopic("TargetVelocity").subscribe(0.0);
     positionInput = table.getDoubleTopic("TargetPosition").subscribe(0.0);
-    currentPositionOutput = table.getDoubleTopic("CurrentPosition").publish();
-    currentVelocityOutput = table.getDoubleTopic("CurrentVelocity").publish();
 
-    // Publish default values and motor type info
+    // Publish default target values
     table.getDoubleTopic("TargetVelocity").publish().set(0.0);
     table.getDoubleTopic("TargetPosition").publish().set(0.0);
-    table.getStringTopic("MotorType").publish().set(isTalonFX ? "TalonFX" : "Spark");
-    table.getIntegerTopic("CANID").publish().set(canId);
   }
 
   @Override
@@ -173,14 +168,9 @@ public class TestMotor extends SubsystemBase {
     targetVelocity = velocityInput.get();
     targetPosition = positionInput.get();
 
-    // Update outputs to dashboard
+    // Update motor periodic (for TalonFX)
     if (isTalonFX && talonMotor != null) {
       talonMotor.periodic();
-      currentPositionOutput.set(talonMotor.getPosition());
-      currentVelocityOutput.set(talonMotor.getVelocity());
-    } else if (sparkMotor != null) {
-      currentPositionOutput.set(sparkMotor.getEncoder().getPosition());
-      currentVelocityOutput.set(sparkMotor.getEncoder().getVelocity());
     }
   }
 

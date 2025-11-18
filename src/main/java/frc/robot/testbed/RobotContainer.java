@@ -66,7 +66,8 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
  *
  * <p><b>Motor Detection:</b> Each motor's type (TalonFX or Spark Max) is automatically detected at
  * startup by interrogating the CAN bus. Motors are configured appropriately based on detection
- * results.
+ * results. Detection is transparent - motors just work with whatever controller is present without
+ * exposing type information to the dashboard.
  */
 public class RobotContainer implements AbstractRobotContainer {
   public static RobotConfig config = RobotConfig.defaultCommandBased(RobotContainer::new);
